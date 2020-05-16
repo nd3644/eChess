@@ -854,7 +854,6 @@ class App : public Eternal::Application {
 			iSelectedSquareX = myInputHandle->GetMouseX() / SQUARE_SIZE;
 			iSelectedSquareY = myInputHandle->GetMouseY() / SQUARE_SIZE;
 			if(bBoardFlipped) {
-//				iSelectedSquareX = 7 - iSelectedSquareX;
 				iSelectedSquareY = 7 - iSelectedSquareY;
 			}
 
@@ -900,25 +899,16 @@ class App : public Eternal::Application {
 			else if(myGameState == GAMEPLAY) {
 			
 				if(myGameMode == NET_SERV && currentTurn == BLACK) {
-/*					myThread = SDL_CreateThread(thread_main, "thread_main", NULL);
-					SDL_DetachThread(myThread);*/
 					bListening = true;
 					return;
 				}
 				else if(myGameMode == NET_CLIENT && currentTurn == WHITE) {
-/*					myThread = SDL_CreateThread(thread_main, "thread_main", NULL);
-					SDL_DetachThread(myThread);*/
 					bListening = true;
 					return;
 				}
 			
 				if(myInputHandle->IsKeyDown(Eternal::InputHandle::KEY_ESCAPE)) {
 					exit(0);
-				}
-				
-				if(myGameMode == NET_SERV || myGameMode == NET_CLIENT) {
-					char buf[4] = { -1, -1, -1, -1 };
-//					SDLNet_TCP_Send(clientSocket, buf, 5);
 				}
 				CheckMoves();
 			
@@ -951,7 +941,6 @@ class App : public Eternal::Application {
 			
 /*			std::cout << "white king in check: " << IsWhiteKingInCheck() << std::endl;
 			std::cout << "black king in check: " << IsBlackKingInCheck() << std::endl;*/
-		
 			
 			bMouseWasDown = myInputHandle->IsMouseDown(Eternal::InputHandle::MouseButtons::MBUTTON_LEFT);
 		}
