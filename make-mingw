@@ -1,0 +1,17 @@
+CXX = g++
+REPOS = ../
+
+SRC = $(wildcard *.cpp)
+OBJS = $(SRC:.cpp=.o)
+
+CXXFLAGS = -Wfatal-errors -I $(REPOS)/libEternal/include/
+LDFLAGS =  -lmingw32 -lEternal -lSDL2main -lSDL2 -lSDL2_image -lSDL2_mixer -lglew32 -lopengl32 -lglu32 -lSDL2_net -L $(REPOS)/libEternal/
+
+out: $(OBJS)
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+	
+
+.PHONY: clean
+
+clean:
+	rm -f $(OBJS) out
