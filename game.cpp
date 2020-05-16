@@ -1,8 +1,11 @@
 #include <iostream>
 #include <thread>
 #include <application.h>
+#include <audio_sound.h>
 #include <vector>
 #include <font.h>
+#include <map>
+#include <fstream>
 
 #include <SDL2/SDL_net.h>
 
@@ -48,9 +51,11 @@ struct position_t {
 	int x, y;
 };
 
+std::map<std::string, std::string>mySettingsMap;
+
 extern int thread_main(void *);
 bool bListening = false;
-bool bBoardFlipped = true;
+bool bBoardFlipped = false;
 struct piece_t {
 	piece_t() {
 		x = y = 0;
@@ -73,6 +78,7 @@ class App : public Eternal::Application {
 	public:
 		GAME_MODE myGameMode;
 		COLOR currentTurn;
+		int iEndGameTimer;
 		App() {
 			currentTurn = WHITE;
 			iSelectedSquareX = iSelectedSquareY = 0;
@@ -83,6 +89,7 @@ class App : public Eternal::Application {
 			myGameMode = HOT_SEAT;
 			myGameState = TITLE;
 			iMenuCursor = 0;
+			iEndGameTimer = 0;
 		}
 		
 		~App() {
@@ -91,6 +98,7 @@ class App : public Eternal::Application {
 		bool bMouseWasDown;
 		Eternal::Sprite sprites_White[NUM_PIECES];
 		Eternal::Sprite sprites_Black[NUM_PIECES];
+		Eternal::Sound sound_Move;
 		
 		std::vector<piece_t>pieces_White;
 		std::vector<piece_t>pieces_Black;
@@ -98,7 +106,27 @@ class App : public Eternal::Application {
 		std::vector<position_t>nodeList;
 		
 		piece_t *heldPiece;
-		
+
+		char key[128];
+		char val[128];
+		void LoadCFG() {
+			std::ifstream infile("settings.cfg");
+			std::string sLine;
+			while(!infile.eof()) {
+				for(int i = 0; i < 128;i++) {
+					key[i] = val[i] = 0x00;
+				}
+				std::getline(infile, sLine);
+				std::sscanf(sLine.c_str(), "%s = %s", key, val);
+				mySettingsMap[key] = val;
+			}
+			infile.close();
+
+			for(auto i = mySettingsMap.cbegin();i != mySettingsMap.cend();i++) {
+				std::cout << i->first << " = " << i->second << std::endl;
+			}
+		}
+
 		bool IsBlackKingInCheck() {
 			piece_t *blackKing = nullptr;
 			for(unsigned int i = 0;i < pieces_Black.size();i++) {
@@ -171,6 +199,8 @@ class App : public Eternal::Application {
 			
 			sprites_White[KING].Load("data/white-king.png");
 			sprites_Black[KING].Load("data/black-king.png");
+
+			sound_Move.Load("data/move.wav");
 		}
 		
 		std::vector<position_t> ListPossibleMoves(piece_t *myPiece) {
@@ -415,7 +445,16 @@ class App : public Eternal::Application {
 			if(myPiece->type == KING) {
 				piece_t *foundPiece = nullptr;
 				for(int x = myPiece->x - 1;x < myPiece->x + 2;x++) {
+					if(x < 0)
+						continue;
+					if(x > 7)
+						break;
 					for(int y = myPiece->y - 1;y < myPiece->y + 2;y++) {
+						if(y < 0)
+							continue;
+						if(y > 7)
+							break;
+
 						pos.x = x;
 						pos.y = y;
 						list.push_back(pos);
@@ -537,6 +576,7 @@ class App : public Eternal::Application {
 				
 					int oldX = heldPiece->x;
 					int oldY = heldPiece->y;
+					// If a piece is placed successfully...
 					if(PlacePiece(*heldPiece, iSelectedSquareX, iSelectedSquareY)) {
 						if(myGameMode == NET_SERV || myGameMode == NET_CLIENT) {
 							char buf[4];
@@ -546,6 +586,7 @@ class App : public Eternal::Application {
 							buf[3] = (char)heldPiece->y;
 							SDLNet_TCP_Send(clientSocket, buf, 5);
 						}
+						sound_Move.Play(0);
 					}
 				}
 			}
@@ -676,6 +717,7 @@ class App : public Eternal::Application {
 				pieces_White[i].color = WHITE;
 				pieces_Black[i].color = BLACK;
 			}
+			currentTurn = WHITE;
 		}
 		
 		void DrawBackdrop() {
@@ -791,6 +833,8 @@ class App : public Eternal::Application {
 			myThread = SDL_CreateThread(thread_main, "thread_main", NULL);
 			SDL_DetachThread(myThread);
 			bListening = false;
+
+			LoadCFG();
 		}
 		void OnDraw() {
 			DrawBackdrop();
@@ -820,7 +864,6 @@ class App : public Eternal::Application {
 			else if(myGameState == GAMEPLAY) {
 				DrawPieces();
 				
-
 				int selX = iSelectedSquareX;
 				int selY = (bBoardFlipped) ? 7 - iSelectedSquareY : iSelectedSquareY;
 				Eternal::Rect r(selX * SQUARE_SIZE, selY * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE);
@@ -845,12 +888,30 @@ class App : public Eternal::Application {
 				if(heldPiece != nullptr) {
 					nodeList = ListPossibleMoves(heldPiece);
 				}
+
+				if(iEndGameTimer > 0) {
+					myFont.DrawString("MATE!", 232, 300, 8, 255, 0, 0);
+					iEndGameTimer--;
+					if(iEndGameTimer <= 0) {
+						myGameState = TITLE;
+						ResetPieces();
+						if(serverSocket) {
+							SDLNet_TCP_Close(serverSocket);
+						}
+						if(clientSocket) {
+							SDLNet_TCP_Close(clientSocket);
+						}
+					}
+				}
 			}
 			else if(myGameState == CONNECTING) {
 				myFont.DrawString("Connecting...", 32, 96, 4);
 			}
 		}
-		void OnUpdate() {			
+		void OnUpdate() {
+			if(myInputHandle->IsKeyDown(Eternal::InputHandle::KEY_ESCAPE)) {
+				exit(0);
+			}
 			iSelectedSquareX = myInputHandle->GetMouseX() / SQUARE_SIZE;
 			iSelectedSquareY = myInputHandle->GetMouseY() / SQUARE_SIZE;
 			if(bBoardFlipped) {
@@ -886,7 +947,7 @@ class App : public Eternal::Application {
 							myGameMode = NET_CLIENT;
 							myGameState = GAMEPLAY;
 							
-							SDLNet_ResolveHost(&ip, "127.0.0.1", 1234);
+							SDLNet_ResolveHost(&ip, mySettingsMap["SERVER_ADDR"].c_str(), 1234);
 							clientSocket = SDLNet_TCP_Open(&ip);
 							if(!clientSocket) {
 								myGameState = CONNECTING;
@@ -906,11 +967,50 @@ class App : public Eternal::Application {
 					bListening = true;
 					return;
 				}
-			
-				if(myInputHandle->IsKeyDown(Eternal::InputHandle::KEY_ESCAPE)) {
-					exit(0);
-				}
 				CheckMoves();
+
+
+				// Look for checkmates
+				if(IsWhiteKingInCheck()) {
+					bool couldMove = false;
+					for(unsigned int i = 0;i < pieces_White.size();i++) {
+						piece_t originalPiece = pieces_White[i];
+						piece_t &piece = pieces_White[i];
+						std::vector<position_t> moves = ListPossibleMoves(&pieces_White[i]);
+						for(unsigned int j = 0;j < moves.size();j++) {
+							piece.x = moves[j].x;
+							piece.y = moves[j].y;
+							if(!IsWhiteKingInCheck()) {
+								couldMove = true;
+								break;
+							}
+						}
+						piece = originalPiece; // Put the piece back after testing for moves
+					}
+					if(!couldMove && iEndGameTimer == 0) {
+						iEndGameTimer = 60 * 5;
+					}
+				}
+				else if(IsBlackKingInCheck()) {
+					bool couldMove = false;
+					for(unsigned int i = 0;i < pieces_Black.size();i++) {
+						piece_t originalPiece = pieces_Black[i];
+						piece_t &piece = pieces_Black[i];
+						std::vector<position_t> moves = ListPossibleMoves(&pieces_Black[i]);
+						for(unsigned int j = 0;j < moves.size();j++) {
+							piece.x = moves[j].x;
+							piece.y = moves[j].y;
+							if(!IsBlackKingInCheck()) {
+								couldMove = true;
+								break;
+							}
+						}
+						piece = originalPiece; // Put the piece back after testing for moves
+					}
+					if(!couldMove) {
+						iEndGameTimer = 60 * 5;
+					}
+				}
 			
 				// remove dud pieces
 				for(unsigned int i = 0;i < pieces_White.size();i++) {
@@ -954,6 +1054,7 @@ class App : public Eternal::Application {
 			if(text[0] != -1) {
 				piece_t *piece = FindAnyPiece((int)text[0], (int)text[1]);
 				PlacePiece(*piece, (int)text[2], (int)text[3]);
+				sound_Move.Play(0);
 			}
 			NextTurn();
 		}
@@ -967,6 +1068,7 @@ class App : public Eternal::Application {
 			if(text[0] != -1) {
 				piece_t *piece = FindAnyPiece((int)text[0], (int)text[1]);
 				PlacePiece(*piece, (int)text[2], (int)text[3]);
+				sound_Move.Play(0);
 			}
 			
 			NextTurn();
