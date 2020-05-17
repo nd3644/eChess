@@ -1,12 +1,10 @@
 #include <iostream>
-#include <thread>
 #include <application.h>
 #include <audio_sound.h>
 #include <vector>
 #include <font.h>
 #include <map>
 #include <fstream>
-
 #include <SDL2/SDL_net.h>
 
 const int SQUARE_SIZE = 96;
@@ -67,8 +65,6 @@ struct piece_t {
 	PIECE_TYPE type;
 	int x, y;
 	bool bTaken;
-	
-	float fShake;
 	
 	bool bFloating;
 	COLOR color;
@@ -517,7 +513,6 @@ class App : public Eternal::Application {
 		// function assumes the given move is legal
 		// but makes sure the piece resolves a check
 		bool PlacePiece(piece_t &which, int x, int y) {
-			COLOR otherColor = (which.color == WHITE) ? BLACK : WHITE;
 			piece_t *originalPiece = FindAnyPiece(x,y);
 			
 			bool bChecked = false;
@@ -1039,9 +1034,6 @@ class App : public Eternal::Application {
 				}
 			}
 			
-/*			std::cout << "white king in check: " << IsWhiteKingInCheck() << std::endl;
-			std::cout << "black king in check: " << IsBlackKingInCheck() << std::endl;*/
-			
 			bMouseWasDown = myInputHandle->IsMouseDown(Eternal::InputHandle::MouseButtons::MBUTTON_LEFT);
 		}
 		
@@ -1070,7 +1062,6 @@ class App : public Eternal::Application {
 				PlacePiece(*piece, (int)text[2], (int)text[3]);
 				sound_Move.Play(0);
 			}
-			
 			NextTurn();
 		}
 		
