@@ -7,6 +7,8 @@
 #include <fstream>
 #include <SDL2/SDL_net.h>
 
+#include "menu.h"
+
 const int SQUARE_SIZE = 96;
 const int WIN_W = SQUARE_SIZE * 8;
 const int WIN_H = SQUARE_SIZE * 8;
@@ -830,13 +832,16 @@ class App : public Eternal::Application {
 			bListening = false;
 
 			LoadCFG();
+
+			myMenu.Show(true);
 		}
 		void OnDraw() {
 			DrawBackdrop();
 			DrawBoard();
+			myMenu.OnDraw(myRenderer);
 			
 			if(myGameState == TITLE) {
-				Eternal::Rect r(0, 0, 400, 200);
+/*				Eternal::Rect r(0, 0, 400, 200);
 				Eternal::Quad q; q.FromRect(r);
 				myRenderer->SetColor(0,0,0,1);
 				myRenderer->DrawQuad(q);
@@ -853,8 +858,7 @@ class App : public Eternal::Application {
 				}
 				myFont.DrawString("SOLO PLAY", 32, 32, 4, cols[0].r, cols[0].g, cols[0].b);
 				myFont.DrawString("CREATE GAME", 32, 64, 4, cols[1].r, cols[1].g, cols[1].b);
-				myFont.DrawString("JOIN GAME", 32, 96, 4, cols[2].r, cols[2].g, cols[2].b);
-				
+				myFont.DrawString("JOIN GAME", 32, 96, 4, cols[2].r, cols[2].g, cols[2].b);*/				
 			}
 			else if(myGameState == GAMEPLAY) {
 				DrawPieces();
@@ -889,6 +893,7 @@ class App : public Eternal::Application {
 					iEndGameTimer--;
 					if(iEndGameTimer <= 0) {
 						myGameState = TITLE;
+						myMenu.Show(true);
 						ResetPieces();
 						if(serverSocket) {
 							SDLNet_TCP_Close(serverSocket);
@@ -907,6 +912,7 @@ class App : public Eternal::Application {
 			if(myInputHandle->IsKeyDown(Eternal::InputHandle::KEY_ESCAPE)) {
 				exit(0);
 			}
+			myMenu.OnUpdate(myInputHandle);
 			iSelectedSquareX = myInputHandle->GetMouseX() / SQUARE_SIZE;
 			iSelectedSquareY = myInputHandle->GetMouseY() / SQUARE_SIZE;
 			if(bBoardFlipped) {
@@ -914,7 +920,7 @@ class App : public Eternal::Application {
 			}
 
 			if(myGameState == TITLE) {
-				if(myInputHandle->IsKeyTap(Eternal::InputHandle::KEY_DOWN)) {
+/*				if(myInputHandle->IsKeyTap(Eternal::InputHandle::KEY_DOWN)) {
 					iMenuCursor = (iMenuCursor == 2) ? 0 : iMenuCursor + 1;
 				}
 				else if(myInputHandle->IsKeyTap(Eternal::InputHandle::KEY_UP)) {
@@ -950,6 +956,35 @@ class App : public Eternal::Application {
 							bBoardFlipped = true;
 						break;
 					};
+				}*/
+
+				if(myMenu.button_OnePlay.WasClicked()) {
+					myGameState = GAMEPLAY;
+					myGameMode = HOT_SEAT;
+					myMenu.Show(false);
+				}
+				else if(myMenu.button_Hostgame.WasClicked()) {
+					// Connect client
+					myGameMode = NET_CLIENT;
+					myGameState = GAMEPLAY;
+					
+					SDLNet_ResolveHost(&ip, mySettingsMap["SERVER_ADDR"].c_str(), 1234);
+					clientSocket = SDLNet_TCP_Open(&ip);
+					if(!clientSocket) {
+						myGameState = CONNECTING;
+					}
+					bBoardFlipped = true;
+					myMenu.Show(false);
+				}
+				else if(myMenu.button_Joingame.WasClicked()) {
+					// Connect server
+					myGameMode = NET_SERV;
+					myGameState = CONNECTING;
+					
+					SDLNet_ResolveHost(&ip, NULL, 1234);
+					serverSocket = SDLNet_TCP_Open(&ip);
+					bBoardFlipped = false;
+					myMenu.Show(false);
 				}
 			}			
 			else if(myGameState == GAMEPLAY) {
@@ -1071,6 +1106,7 @@ class App : public Eternal::Application {
 		TCPsocket clientSocket;
 		SDLNet_SocketSet mySocketSet;
 		
+		Menu myMenu;
 	
 		Eternal::Font myFont;
 		GAME_STATE myGameState;
