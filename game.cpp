@@ -8,6 +8,7 @@
 #include <SDL2/SDL_net.h>
 
 #include "menu.h"
+#include "pgn.h"
 
 const int SQUARE_SIZE = 96;
 const int WIN_W = SQUARE_SIZE * 8;
@@ -19,7 +20,8 @@ enum GAME_MODE {
 	HOT_SEAT = 1,
 	COMPUTER,
 	NET_SERV,
-	NET_CLIENT
+	NET_CLIENT,
+	PLAYING_PGN
 };
 
 enum GAME_STATE {
@@ -35,6 +37,8 @@ enum COLOR {
 };
 
 enum PIECE_TYPE {
+	ANY = -1,
+
 	PAWN = 1,
 	ROOK,
 	KNIGHT,
@@ -52,6 +56,8 @@ struct position_t {
 };
 
 std::map<std::string, std::string>mySettingsMap;
+std::map<char, int>BoardLookup;
+std::map<char, PIECE_TYPE>PieceCharLookup;
 
 extern int thread_main(void *);
 bool bListening = false;
@@ -88,6 +94,7 @@ class App : public Eternal::Application {
 			myGameState = TITLE;
 			iMenuCursor = 0;
 			iEndGameTimer = 0;
+			iTimerTicks = 0;
 		}
 		
 		~App() {
@@ -107,6 +114,7 @@ class App : public Eternal::Application {
 
 		char key[128];
 		char val[128];
+
 		void LoadCFG() {
 			std::ifstream infile("settings.cfg");
 			std::string sLine;
@@ -119,10 +127,6 @@ class App : public Eternal::Application {
 				mySettingsMap[key] = val;
 			}
 			infile.close();
-
-			for(auto i = mySettingsMap.cbegin();i != mySettingsMap.cend();i++) {
-				std::cout << i->first << " = " << i->second << std::endl;
-			}
 		}
 
 		bool IsBlackKingInCheck() {
@@ -833,34 +837,30 @@ class App : public Eternal::Application {
 
 			LoadCFG();
 
+			BoardLookup['a'] = 0;
+			BoardLookup['b'] = 1;
+			BoardLookup['c'] = 2;
+			BoardLookup['d'] = 3;
+			BoardLookup['e'] = 4;
+			BoardLookup['f'] = 5;
+			BoardLookup['g'] = 6;
+			BoardLookup['h'] = 7;
+
+			PieceCharLookup['N'] = KNIGHT;
+			PieceCharLookup['R'] = ROOK;
+			PieceCharLookup['Q'] = QUEEN;
+			PieceCharLookup['B'] = BISHOP;
+			PieceCharLookup['K'] = KING;
+
+
+
 			myMenu.Show(true);
 		}
 		void OnDraw() {
 			DrawBackdrop();
 			DrawBoard();
 			myMenu.OnDraw(myRenderer);
-			
-			if(myGameState == TITLE) {
-/*				Eternal::Rect r(0, 0, 400, 200);
-				Eternal::Quad q; q.FromRect(r);
-				myRenderer->SetColor(0,0,0,1);
-				myRenderer->DrawQuad(q);
-				
-				
-				Eternal::RGBA cols[3];
-				for(int i = 0;i < 3;i++) {
-					cols[i].r = cols[i].g = cols[i].b = cols[i].a = 255;
-					if(i == iMenuCursor) {
-						cols[i].r = 255;
-						cols[i].g = 0;
-						cols[i].b = 0;
-					}
-				}
-				myFont.DrawString("SOLO PLAY", 32, 32, 4, cols[0].r, cols[0].g, cols[0].b);
-				myFont.DrawString("CREATE GAME", 32, 64, 4, cols[1].r, cols[1].g, cols[1].b);
-				myFont.DrawString("JOIN GAME", 32, 96, 4, cols[2].r, cols[2].g, cols[2].b);*/				
-			}
-			else if(myGameState == GAMEPLAY) {
+			if(myGameState == GAMEPLAY) {
 				DrawPieces();
 				
 				int selX = iSelectedSquareX;
@@ -920,44 +920,6 @@ class App : public Eternal::Application {
 			}
 
 			if(myGameState == TITLE) {
-/*				if(myInputHandle->IsKeyTap(Eternal::InputHandle::KEY_DOWN)) {
-					iMenuCursor = (iMenuCursor == 2) ? 0 : iMenuCursor + 1;
-				}
-				else if(myInputHandle->IsKeyTap(Eternal::InputHandle::KEY_UP)) {
-					iMenuCursor = (iMenuCursor == 0) ? 2 : iMenuCursor - 1;
-				}
-				if(myInputHandle->IsKeyTap(Eternal::InputHandle::KEY_START)) {
-					switch(iMenuCursor) {
-						case 0:
-							myGameState = GAMEPLAY;
-							myGameMode = HOT_SEAT;
-						break;
-						
-						case 1:
-							// Connect server
-							myGameMode = NET_SERV;
-							myGameState = CONNECTING;
-							
-							SDLNet_ResolveHost(&ip, NULL, 1234);
-							serverSocket = SDLNet_TCP_Open(&ip);
-							bBoardFlipped = false;
-						break;
-						
-						case 2:
-							// Connect client
-							myGameMode = NET_CLIENT;
-							myGameState = GAMEPLAY;
-							
-							SDLNet_ResolveHost(&ip, mySettingsMap["SERVER_ADDR"].c_str(), 1234);
-							clientSocket = SDLNet_TCP_Open(&ip);
-							if(!clientSocket) {
-								myGameState = CONNECTING;
-							}
-							bBoardFlipped = true;
-						break;
-					};
-				}*/
-
 				if(myMenu.button_OnePlay.WasClicked()) {
 					myGameState = GAMEPLAY;
 					myGameMode = HOT_SEAT;
@@ -986,6 +948,15 @@ class App : public Eternal::Application {
 					bBoardFlipped = false;
 					myMenu.Show(false);
 				}
+				else if(myMenu.button_PlayPGN.WasClicked()) {
+					myPGN.Load("demo.pgn");
+					myGameState = GAMEPLAY;
+					myGameMode = PLAYING_PGN;
+					myMenu.Show(false);
+				}
+				else if(myMenu.button_Quit.WasClicked()) {
+					exit(0);
+				}
 			}			
 			else if(myGameState == GAMEPLAY) {
 			
@@ -997,7 +968,116 @@ class App : public Eternal::Application {
 					bListening = true;
 					return;
 				}
-				CheckMoves();
+				else if(myGameMode == PLAYING_PGN) {
+							
+					static int timer = 0;
+					static int CurMove = 0;
+					timer++;
+					if(myInputHandle->IsKeyTap(Eternal::InputHandle::KEY_RIGHT)) {
+						timer = 0;
+					}
+					else {
+						return;
+					}
+
+					PIECE_TYPE workingPiece = ANY;
+					int workingRank = -1;
+
+					std::cout << "total- " << CurMove << " , " << myPGN.GetTotalMoves() << std::endl;
+					if(CurMove >= myPGN.GetTotalMoves()) {
+						CurMove = 0;
+						myGameState = TITLE;
+						myMenu.Show(true);
+						ResetPieces();
+					}
+					std::string move = myPGN.GetMove(CurMove);
+					CurMove++;
+
+					// castling is a special rule for now...
+					// TODO fix x)
+					if(move[0] == 'O') {
+						std::vector<piece_t> &pieceList = (currentTurn == BLACK) ? pieces_Black : pieces_White;
+						piece_t *neighbourRook = nullptr;
+						piece_t *king = nullptr;
+
+						// find the king
+						for(unsigned int i = 0;i < pieceList.size();i++) {
+							if(pieceList[i].type == KING) {
+								king = &pieceList[i];
+								break;
+							}
+						}
+
+						// find nearest rook
+						for(unsigned int i = 0;i < pieceList.size();i++) {
+							if(pieceList[i].type == ROOK && abs(king->x - pieceList[i].x) == 3) {
+								neighbourRook = &pieceList[i];
+								break;
+							}
+						}
+
+						if(move == "O-O" || move ==  "O-O+") {
+							king->x -= 2;
+						
+						}
+						else if(move == "O-O-O" || move ==  "O-O-O+") {
+							king->x += 2;
+							neighbourRook->x -= 2;
+						}
+						NextTurn();
+						return;
+					}
+
+					if(std::isupper(move[0])) {
+						workingPiece = PieceCharLookup[move[0]];
+						std::cout << "working- " << move[0] << ", " <<  workingPiece << std::endl;
+						move.erase(move.begin() + 0);
+					}
+					else if(move[0] != 'x' && move.length() > 2) {
+						// specifies a rank?
+						workingRank = BoardLookup[move[0]];
+
+						move.erase(move.begin() + 0);
+					}
+					if(move[0] == 'x') {
+						move.erase(move.begin() + 0);
+					}
+
+					std::cout << "trying move " << move << std::endl;
+
+					int moveX = BoardLookup[move[0]];
+					int moveY = (int)move[1] - 48;
+					moveY = 8 - moveY;
+
+					std::cout << "translating to ... " << moveX << " , " << moveY << std::endl;
+					std::cout << move[1] << std::endl;
+					std::cout << "turn is " << currentTurn << std::endl;
+					int find = 0;
+					// find appropiate piece
+					std::vector<piece_t> &pieceList = (currentTurn == BLACK) ? pieces_Black : pieces_White;
+					for(unsigned int i = 0;i < pieceList.size();i++) {
+						std::vector<position_t>positionsList = ListPossibleMoves(&pieceList[i]);
+						for(int j = 0;j < positionsList.size();j++) {
+							if(positionsList[j].x == moveX && positionsList[j].y == moveY) {
+								find++;
+								std::cout << "found this- " << pieceList[i].type << pieceList[i].x << " , " << pieceList[i].y << std::endl;
+								if(pieceList[i].type == workingPiece || workingPiece == ANY) {
+									if(workingRank == -1 || pieceList[i].x == workingRank) {
+										PlacePiece(pieceList[i], moveX, moveY);
+										i = pieceList.size() + 1;
+										sound_Move.Play(0);
+										break;
+									}
+								}
+								find++;
+							}
+						}
+					}
+					std::cout << "\n\nfound " << find << " valid pieces" << std::endl;
+				}
+				else {
+					CheckMoves();
+				}
 
 
 				// Look for checkmates
@@ -1111,20 +1191,13 @@ class App : public Eternal::Application {
 		Eternal::Font myFont;
 		GAME_STATE myGameState;
 		int iMenuCursor;
+		int iTimerTicks;
+
+		PGN myPGN;
 	
 };
 
 App app;
-
-/*if(myGameMode == NET_SERV && currentTurn == BLACK) {
-					PollClientForTurn();
-					return; // wait on client to send a turn
-				}
-				else if(myGameMode == NET_CLIENT && currentTurn == WHITE) {
-					PollServerForTurn();
-					return; // wait on server to send a turn
-				}*/
-
 int thread_main(void *nothing) {
 	for(;;) {
 		if(app.myGameState == GAMEPLAY && bListening == true) {
